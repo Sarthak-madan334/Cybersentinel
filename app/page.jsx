@@ -1,31 +1,821 @@
-"use client";
+﻿"use client";
 import { useEffect, useMemo, useState } from "react";
 
-const rank = { Critical:4, High:3, Medium:2, Low:1 };
-const colour = { Critical:"#E5484D", High:"#F5A524", Medium:"#F5D90A", Low:"#3DD68C" };
-const statuses = ["New","Investigating","Contained","Resolved"];
+const rank = { Critical: 4, High: 3, Medium: 2, Low: 1 };
+const colour = { Critical: "#E5484D", High: "#F5A524", Medium: "#F5D90A", Low: "#3DD68C" };
+const statuses = ["New", "Investigating", "Contained", "Resolved"];
+const categoryOptions = [
+  "All",
+  "Brute Force",
+  "Port Scan",
+  "C2 Beaconing Pattern",
+  "Data Exfiltration Attempt",
+  "Privilege Escalation",
+  "Malware Execution Pattern",
+];
 
-function Severity({ tier }) { return <span className="severity"><i style={{background:colour[tier]}} />{tier}</span>; }
+function Severity({ tier }) {
+  return (
+    <span className="severity-pill">
+      <i style={{ background: colour[tier] || "#5B8DEF" }} />
+      {tier}
+    </span>
+  );
+}
+
+function formatTime(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function Dashboard() {
-  const [data, setData] = useState(null); const [selected, setSelected] = useState(null); const [view, setView] = useState("Live"); const [category, setCategory] = useState("All"); const [severity, setSeverity] = useState("All");
+  const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [view, setView] = useState("Live");
+  const [category, setCategory] = useState("All");
+  const [severity, setSeverity] = useState("All");
+
   const loadIncidents = async (keepSelection = false) => {
-    const result = await fetch("/api/incidents").then(r => r.json());
+    const result = await fetch("/api/incidents").then((r) => r.json());
     setData(result);
-    setSelected(current => keepSelection ? result.incidents.find(i => i.incident_id === current?.incident_id) || result.incidents[0] || null : result.incidents[0] || null);
+    setSelected((current) => {
+      if (keepSelection && current) {
+        return result.incidents.find((item) => item.incident_id === current.incident_id) || null;
+      }
+      return null;
+    });
   };
-  useEffect(() => { loadIncidents().catch(() => setData({ incidents:[], events_processed:0 })); }, []);
-  const incidents = useMemo(() => (data?.incidents || []).filter(i => (view === "Live" ? i.status !== "Resolved" : i.status === "Resolved") && (category === "All" || i.category.includes(category)) && (severity === "All" || i.severity_tier === severity)).sort((a,b) => rank[b.severity_tier] - rank[a.severity_tier]), [data, view, category, severity]);
-  const updateStatus = async status => { if (!selected) return; const response = await fetch(`/api/incidents/${selected.incident_id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({status}) }); if (!response.ok) return; const update=await response.json(); const changed={...selected,...update}; setSelected(changed); setData(old => ({...old,incidents:old.incidents.map(i => i.incident_id===changed.incident_id ? {...i,...update} : i)})); };
-  const active=(data?.incidents||[]).filter(i=>i.status!=="Resolved");
-  return <main>
-    <header><div><h1>CyberSentinel</h1><p>Deterministic security monitoring</p></div><div className="stats"><span>Events <b>{data?.events_processed ?? "—"}</b></span><span>Active <b>{active.length}</b></span><span>Critical <b>{active.filter(i=>i.severity_tier==="Critical").length}</b></span><button className="refresh" onClick={()=>loadIncidents(true)}>Refresh pipeline</button></div></header>
-    {!data && <div className="progress" />}
-    <section className="shell"><aside><div className="queue-head"><h2>{view} queue</h2><select value={view} onChange={e=>setView(e.target.value)}><option>Live</option><option>Historical</option></select></div>{view === "Historical" && <div className="filters"><select value={category} onChange={e=>setCategory(e.target.value)}><option>All</option><option>Brute Force</option><option>Port Scan</option><option>C2 Beaconing Pattern</option><option>Data Exfiltration Attempt</option></select><select value={severity} onChange={e=>setSeverity(e.target.value)}><option>All</option>{Object.keys(rank).map(x=><option key={x}>{x}</option>)}</select></div>}<div className="queue">{incidents.map(item=><button className={`row ${selected?.incident_id===item.incident_id?"selected":""}`} onClick={()=>setSelected(item)} key={item.incident_id}><Severity tier={item.severity_tier}/><strong>{item.category}</strong><code>{item.source_ip || item.host}</code><small>{item.matched_events.length} events · {new Date(item.created_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</small></button>)}{data && !incidents.length && <p className="empty">No incidents match these filters.</p>}</div></aside>
-      <article>{selected ? <><div className="detail-head"><div><Severity tier={selected.severity_tier}/><h2>{selected.category}</h2><p><code>{selected.source_ip}</code> · {selected.host} · {selected.user || "No account"}</p></div><label>Status<select value={selected.status} onChange={e=>updateStatus(e.target.value)}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label></div><div className="severity-line" style={{background:colour[selected.severity_tier]}} /><section className="detail-section"><h3>Evidence trail</h3><div className="evidence">{selected.evidence.map((e,n)=><div key={n}><time>{selected.matched_events.find(x=>x.id===e.event_id)?.timestamp?.replace("T"," ").replace("Z","")}</time><span>{e.field}</span><code>{String(e.value)}</code></div>)}</div></section><section className="detail-section"><h3>Analyst narrative</h3><p>{selected.narrative}</p></section><section className="detail-section"><h3>Recommended response</h3><p>{selected.recommended_response}</p></section></> : <p className="empty">Select an incident to view details.</p>}</article></section>
-    {view === "Historical" && <footer><h2>Resolved incident volume</h2><div className="bars">{[1,3,2,4,2,1,3].map((n,i)=><div key={i}><i style={{height:`${n*16}px`}} /><span>{i+1}</span></div>)}</div></footer>}
-    <style jsx>{`
-      main{min-height:100vh;padding:0 24px 28px;max-width:1480px;margin:auto} header{height:82px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}h1,h2,h3,p{margin:0}h1{font-size:22px;font-weight:600}header p{font-size:13px;color:var(--ink-muted);margin-top:4px}.stats{display:flex;align-items:center;gap:26px;color:var(--ink-muted);font-size:13px}.stats b{color:var(--ink);font-size:17px;margin-left:5px}.refresh{background:var(--surface);border:1px solid var(--line);color:var(--ink);padding:7px 10px;border-radius:4px;font-size:12px;cursor:pointer}.progress{position:fixed;left:0;top:0;height:2px;width:32%;background:#5B8DEF;animation:load 1s infinite alternate}.shell{display:grid;grid-template-columns:410px minmax(0,1fr);min-height:calc(100vh - 110px);border-bottom:1px solid var(--line)}aside{border-right:1px solid var(--line);min-width:0}article{padding:32px 38px;max-width:850px;min-width:0}.queue-head{padding:25px 18px 16px;display:flex;align-items:center;justify-content:space-between}.queue-head h2{font-size:15px}.queue-head select,.filters select,label select{background:var(--surface);border:1px solid var(--line);border-radius:4px;color:var(--ink);padding:7px;font-size:13px}.filters{display:flex;gap:8px;padding:0 18px 12px}.queue{border-top:1px solid var(--line)}.row{width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--ink);padding:15px 18px;text-align:left;cursor:pointer;display:grid;gap:6px}.row:hover,.row.selected{background:var(--surface-raised)}.row strong{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row code,.row small,article code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink-muted);font-size:12px}.row small{font-size:12px}.severity{font-size:12px;display:inline-flex;align-items:center;gap:7px;width:max-content}.severity i{display:inline-block;width:8px;height:8px;border-radius:99px}.detail-head{display:flex;justify-content:space-between;gap:20px}.detail-head h2{font-size:22px;margin:10px 0 5px}.detail-head p{font-size:13px;color:var(--ink-muted)}label{font-size:12px;color:var(--ink-muted);display:grid;gap:6px}.severity-line{height:3px;margin:24px 0}.detail-section{padding:19px 0;border-bottom:1px solid var(--line)}.detail-section h3{font-size:15px;margin-bottom:11px}.detail-section p{font-size:14px;line-height:1.65;color:#c9ced2}.evidence div{display:grid;grid-template-columns:175px 150px minmax(0,1fr);gap:12px;padding:8px 0;font-size:13px;border-top:1px solid #202427}.evidence time,.evidence span{color:var(--ink-muted)}.evidence code{overflow-wrap:anywhere}.empty{color:var(--ink-muted);font-size:14px;padding:30px 18px}footer{padding:28px 0}footer h2{font-size:15px}.bars{display:flex;height:100px;gap:14px;align-items:flex-end;margin-top:14px}.bars div{display:grid;gap:5px;justify-items:center;color:var(--ink-muted);font-size:11px}.bars i{display:block;width:22px;background:#515a62}@keyframes load{to{transform:translateX(200%)}}@media(max-width:1080px){main{padding:0 18px 24px}.shell{grid-template-columns:330px minmax(0,1fr)}article{padding:28px}.stats{gap:15px}.evidence div{grid-template-columns:130px 120px minmax(0,1fr)}}@media(max-width:760px){main{padding:0 14px 22px}header{height:auto;min-height:116px;padding:18px 0;align-items:flex-start;gap:18px}header p{display:none}.stats{display:grid;grid-template-columns:repeat(3,auto);gap:8px 15px;text-align:right}.stats span{display:grid;font-size:11px}.stats b{font-size:16px;margin:1px 0 0}.refresh{grid-column:1/-1;min-height:36px}.shell{grid-template-columns:1fr}.shell aside{border-right:0;border-bottom:1px solid var(--line)}.queue-head{padding:18px 0 12px}.filters{padding:0 0 12px}.filters select{width:50%;min-width:0}.row{padding:14px 0}.queue{max-height:370px;overflow:auto}article{padding:24px 0}.detail-head{flex-direction:column;gap:16px}.detail-head h2{font-size:20px}.detail-head label{width:100%;max-width:210px}.severity-line{margin:18px 0}.detail-section{padding:17px 0}.evidence div{grid-template-columns:1fr;gap:3px;padding:10px 0}.evidence time{font-size:11px}.bars{gap:10px}}@media(max-width:410px){header{gap:12px}.stats{gap:7px 10px}.stats span{font-size:10px}.stats b{font-size:14px}.refresh{font-size:11px}.detail-head p{line-height:1.6}.queue-head select{min-height:36px}}
-    `}</style>
-  </main>;
+
+  useEffect(() => {
+    loadIncidents().catch(() => setData({ incidents: [], events_processed: 0 }));
+  }, []);
+
+  const incidents = useMemo(() => {
+    return (data?.incidents || [])
+      .filter((item) => {
+        const matchesView = view === "Live" ? item.status !== "Resolved" : item.status === "Resolved";
+        const matchesCategory = category === "All" || item.category.includes(category);
+        const matchesSeverity = severity === "All" || item.severity_tier === severity;
+        return matchesView && matchesCategory && matchesSeverity;
+      })
+      .sort((a, b) => rank[b.severity_tier] - rank[a.severity_tier]);
+  }, [data, view, category, severity]);
+
+  const active = (data?.incidents || []).filter((item) => item.status !== "Resolved");
+  const highRiskIncidents = active.filter((item) => item.severity_tier === "Critical" || item.severity_tier === "High");
+  const affectedHosts = new Set(highRiskIncidents.map((item) => item.host).filter(Boolean));
+  const totals = useMemo(() => {
+    const severityCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+    for (const item of active) {
+      if (severityCounts[item.severity_tier] !== undefined) {
+        severityCounts[item.severity_tier] += 1;
+      }
+    }
+    return severityCounts;
+  }, [active]);
+
+  const updateStatus = async (status) => {
+    if (!selected) return;
+    const response = await fetch(`/api/incidents/${selected.incident_id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+
+    if (!response.ok) return;
+    const update = await response.json();
+    const changed = { ...selected, ...update };
+    setSelected(changed);
+    setData((old) => ({
+      ...old,
+      incidents: (old?.incidents || []).map((item) =>
+        item.incident_id === changed.incident_id ? { ...item, ...update } : item,
+      ),
+    }));
+  };
+
+  return (
+    <main className="dashboard-shell">
+      {!data && <div className="progress" />}
+
+      <header className="topbar">
+        <div className="brand-wrap">
+          <div className="brand-icon" aria-hidden="true">
+            <span />
+          </div>
+          <h1>Sarthak&apos;s CyberSentinel</h1>
+        </div>
+
+        <div className="stats-strip">
+          <div className="stat-box">
+            <strong>{data?.events_processed ?? "—"}</strong>
+            <span>Events</span>
+          </div>
+          <div className="stat-box">
+            <strong>{active.length}</strong>
+            <span>Active</span>
+          </div>
+          <div className="stat-box">
+            <strong>{totals.Critical}</strong>
+            <span>Critical</span>
+          </div>
+          <div className="stat-box risk-stat">
+            <strong>{highRiskIncidents.length}</strong>
+            <span>High risk</span>
+          </div>
+        </div>
+
+        <div className="header-actions">
+          <button className="refresh-button" onClick={() => loadIncidents(true)}>
+            Refresh pipeline
+          </button>
+          <div className="avatar" aria-label="Sarthak's analyst profile">SM</div>
+        </div>
+      </header>
+
+      <section className="hero-block">
+        <h2>Security operations overview</h2>
+        <p>Deterministic detections, evidence-backed incident correlation, and analyst response tracking.</p>
+      </section>
+
+      {highRiskIncidents.length > 0 && (
+        <section className="risk-banner" aria-label="High-risk vulnerabilities requiring attention">
+          <div className="risk-marker" aria-hidden="true">!</div>
+          <div>
+            <strong>Vulnerabilities requiring attention</strong>
+            <p>{highRiskIncidents.length} high-risk incident{highRiskIncidents.length === 1 ? "" : "s"} across {affectedHosts.size} affected host{affectedHosts.size === 1 ? "" : "s"}. Review Critical and High findings first.</p>
+          </div>
+          <button onClick={() => { setView("Live"); setSeverity("Critical"); }}>View Critical</button>
+        </section>
+      )}
+
+      <section className="queue-panel">
+        <div className="section-header">
+          <h3>Live queue</h3>
+          <label className="select-wrap">
+            <select value={view} onChange={(e) => setView(e.target.value)}>
+              <option value="Live">Live</option>
+              <option value="Historical">Historical</option>
+            </select>
+          </label>
+        </div>
+
+        {view === "Historical" && (
+          <div className="filter-row">
+            <label className="select-wrap small">
+              <select value={category} onChange={(e) => setCategory(e.target.value)}>
+                {categoryOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="select-wrap small">
+              <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
+                <option value="All">All severities</option>
+                {Object.keys(rank).map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+
+        <div className="content-grid">
+          <div className="queue-list">
+            {incidents.length ? (
+              incidents.map((item) => (
+                <button
+                  key={item.incident_id}
+                  className={`incident-row ${selected?.incident_id === item.incident_id ? "selected" : ""}`}
+                  onClick={() => setSelected(item)}
+                >
+                  <div className="row-main">
+                    <div className="row-meta">
+                      <Severity tier={item.severity_tier} />
+                      <span className="source">{item.source_ip || item.host}</span>
+                    </div>
+                    <span className="time-stamp">{new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                  <p>{item.category}</p>
+                </button>
+              ))
+            ) : (
+              <div className="empty-state">No incidents match these filters.</div>
+            )}
+          </div>
+
+          {selected && (
+            <aside className="detail-panel">
+              <div className="detail-header">
+                <div className="detail-title">
+                  <Severity tier={selected.severity_tier} />
+                  <h4>{selected.category}</h4>
+                </div>
+
+                <label className="status-field">
+                  <span>Status</span>
+                  <select value={selected.status} onChange={(e) => updateStatus(e.target.value)}>
+                    {statuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="detail-meta">
+                <code>{selected.source_ip || "unknown source"}</code>
+                <span>·</span>
+                <span>{selected.host || "unknown host"}</span>
+                <span>·</span>
+                <span>{selected.user || "No account"}</span>
+              </div>
+
+              <div className="severity-bar">
+                <span
+                  className="severity-fill"
+                  style={{ width: `${Math.min(selected.severity, 100)}%`, background: colour[selected.severity_tier] || "#5B8DEF" }}
+                />
+              </div>
+
+              <section className="detail-section">
+                <div className="section-label">Evidence trail</div>
+                <div className="evidence-list">
+                  {selected.evidence.map((entry, index) => {
+                    const event = selected.matched_events.find((item) => item.id === entry.event_id);
+                    return (
+                      <div className="evidence-row" key={`${entry.event_id}-${entry.field}-${index}`}>
+                        <time>{formatTime(event?.timestamp)}</time>
+                        <span>{entry.field}</span>
+                        <code>{String(entry.value)}</code>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="detail-section">
+                <div className="section-label">Analyst narrative</div>
+                <p>{selected.narrative}</p>
+              </section>
+
+              <section className="detail-section">
+                <div className="section-label">Recommended response</div>
+                <p>{selected.recommended_response}</p>
+              </section>
+            </aside>
+          )}
+        </div>
+      </section>
+
+      <style jsx>{`
+        :global(html) {
+          color-scheme: dark;
+        }
+
+        :global(body) {
+          margin: 0;
+          background: #0f1113;
+          color: #e7e9ea;
+          font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", sans-serif;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        button,
+        select {
+          font: inherit;
+        }
+
+        button:focus-visible,
+        select:focus-visible {
+          outline: 2px solid #5b8def;
+          outline-offset: 2px;
+        }
+
+        .dashboard-shell {
+          min-height: 100vh;
+          background: #0f1113;
+          color: #e7e9ea;
+          padding: 0 20px 28px;
+        }
+
+        .topbar {
+          display: grid;
+          grid-template-columns: 1fr auto auto;
+          align-items: center;
+          gap: 20px;
+          width: min(1280px, 100%);
+          margin: 0 auto;
+          min-height: 86px;
+          padding: 18px 0;
+          border-bottom: 1px solid #23272c;
+        }
+
+        .brand-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 14px;
+          justify-self: start;
+        }
+
+        .brand-icon {
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #ff7a7a, #d73859);
+          display: grid;
+          place-items: center;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.25);
+        }
+
+        .brand-icon span {
+          display: block;
+          width: 11px;
+          height: 11px;
+          border: 2px solid rgba(255,255,255,0.9);
+          border-radius: 50%;
+          position: relative;
+        }
+
+        .brand-icon span::before {
+          content: "";
+          position: absolute;
+          inset: -4px;
+          border: 2px solid rgba(255,255,255,0.8);
+          border-radius: 50%;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        p,
+        strong,
+        span,
+        code,
+        time,
+        small {
+          margin: 0;
+        }
+
+        h1 {
+          font-size: clamp(1.8rem, 3vw, 3rem);
+          font-weight: 700;
+          letter-spacing: -0.06em;
+          color: #edf1f4;
+        }
+
+        .stats-strip {
+          display: flex;
+          align-items: center;
+          justify-self: center;
+          gap: 16px;
+          padding: 0 4px;
+        }
+
+        .stat-box {
+          min-width: 88px;
+          display: grid;
+          gap: 2px;
+          text-align: center;
+        }
+
+        .stat-box strong {
+          font-size: clamp(1.9rem, 3vw, 2.5rem);
+          font-weight: 700;
+          color: #edf1f4;
+          letter-spacing: -0.05em;
+          line-height: 1;
+        }
+
+        .stat-box span {
+          font-size: 12px;
+          color: #8a9199;
+          text-transform: none;
+        }
+
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          justify-self: end;
+        }
+
+        .refresh-button {
+          border: 1px solid #2a2f33;
+          background: #1a1d20;
+          color: #edf1f4;
+          border-radius: 12px;
+          padding: 12px 18px;
+          font-size: 15px;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+
+        .refresh-button:hover {
+          background: #202427;
+        }
+
+        .avatar {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          background: #202427;
+          color: #edf1f4;
+          border: 1px solid #2a2f33;
+          display: grid;
+          place-items: center;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .hero-block {
+          width: min(1280px, 100%);
+          margin: 0 auto;
+          padding: 40px 0 28px;
+        }
+
+        .hero-block h2 {
+          font-size: clamp(2.4rem, 4vw, 4.2rem);
+          font-weight: 700;
+          letter-spacing: -0.06em;
+          margin-bottom: 10px;
+        }
+
+        .hero-block p {
+          color: #9aa4ad;
+          font-size: clamp(1.1rem, 2vw, 1.7rem);
+          letter-spacing: -0.03em;
+        }
+
+        .risk-banner {
+          width: min(1280px, 100%);
+          margin: 0 auto 26px;
+          padding: 15px 18px;
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          border: 1px solid rgba(229, 72, 77, 0.65);
+          border-left: 4px solid #e5484d;
+          border-radius: 12px;
+          background: rgba(229, 72, 77, 0.08);
+        }
+
+        .risk-marker {
+          width: 28px;
+          height: 28px;
+          flex: 0 0 auto;
+          display: grid;
+          place-items: center;
+          border-radius: 50%;
+          background: #e5484d;
+          color: #fff;
+          font-weight: 800;
+        }
+
+        .risk-banner strong { color: #ffd9da; font-size: 15px; }
+        .risk-banner p { margin-top: 3px; color: #f0b9bb; font-size: 13px; }
+        .risk-banner button { margin-left: auto; border: 1px solid rgba(229,72,77,0.8); border-radius: 8px; background: #e5484d; color: #fff; padding: 9px 12px; font-size: 13px; font-weight: 650; cursor: pointer; white-space: nowrap; }
+        .risk-banner button:hover { background: #f05b60; }
+
+        .queue-panel {
+          width: min(1280px, 100%);
+          margin: 0 auto;
+          border-top: 1px solid #23272c;
+          padding-top: 20px;
+        }
+
+        .section-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 20px;
+          margin-bottom: 12px;
+        }
+
+        .section-header h3 {
+          font-size: clamp(1.2rem, 2vw, 2rem);
+          font-weight: 700;
+          letter-spacing: -0.04em;
+          color: #edf1f4;
+        }
+
+        .select-wrap {
+          min-width: 120px;
+        }
+
+        select {
+          width: 100%;
+          border: 1px solid #2a2f33;
+          background: #181b1e;
+          color: #edf1f4;
+          border-radius: 12px;
+          padding: 10px 12px;
+          font-size: 14px;
+        }
+
+        .filter-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .filter-row .select-wrap {
+          min-width: 180px;
+        }
+
+        .content-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+          gap: 18px;
+          align-items: start;
+        }
+
+        .queue-list {
+          border-top: 1px solid #23272c;
+          background: rgba(17, 20, 22, 0.45);
+          border-radius: 16px 16px 0 0;
+          overflow: hidden;
+        }
+
+        .incident-row {
+          width: 100%;
+          display: block;
+          background: transparent;
+          border: 0;
+          border-bottom: 1px solid #23272c;
+          text-align: left;
+          color: #edf1f4;
+          padding: 16px 18px;
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+
+        .incident-row:hover,
+        .incident-row.selected {
+          background: rgba(255, 255, 255, 0.02);
+        }
+
+        .row-main {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 10px;
+        }
+
+        .row-meta {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .source {
+          color: #9aa4ad;
+          font-size: 12px;
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .time-stamp {
+          color: #7c8a95;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+
+        .incident-row p {
+          font-size: 15px;
+          line-height: 1.5;
+          color: #edf1f4;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .detail-panel {
+          border: 1px solid #23272c;
+          background: rgba(17, 20, 22, 0.45);
+          border-radius: 16px;
+          padding: 20px;
+        }
+
+        .detail-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+
+        .detail-title {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .detail-title h4 {
+          font-size: 1.1rem;
+          letter-spacing: -0.03em;
+          color: #edf1f4;
+        }
+
+        .status-field {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: #9aa4ad;
+        }
+
+        .status-field select {
+          min-width: 128px;
+        }
+
+        .detail-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 14px;
+          color: #9aa4ad;
+          font-size: 12px;
+        }
+
+        .detail-meta code {
+          color: #edf1f4;
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+
+        .severity-bar {
+          height: 6px;
+          background: rgba(255,255,255,0.06);
+          border-radius: 999px;
+          overflow: hidden;
+          margin-bottom: 18px;
+        }
+
+        .severity-fill {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+        }
+
+        .detail-section {
+          padding-top: 18px;
+          border-top: 1px solid #23272c;
+          margin-top: 18px;
+        }
+
+        .section-label {
+          font-size: 12px;
+          color: #9aa4ad;
+          margin-bottom: 12px;
+          text-transform: none;
+        }
+
+        .detail-section p {
+          color: #edf1f4;
+          line-height: 1.7;
+          font-size: 14px;
+        }
+
+        .evidence-list {
+          display: grid;
+          gap: 10px;
+        }
+
+        .evidence-row {
+          display: grid;
+          grid-template-columns: 150px 140px minmax(0, 1fr);
+          gap: 12px;
+          align-items: center;
+          background: rgba(255,255,255,0.02);
+          border: 1px solid #23272c;
+          border-radius: 10px;
+          padding: 10px 12px;
+        }
+
+        .evidence-row time,
+        .evidence-row span {
+          color: #9aa4ad;
+          font-size: 12px;
+        }
+
+        .evidence-row code {
+          font-family: ui-monospace, "SF Mono", Menlo, monospace;
+          color: #edf1f4;
+          font-size: 12px;
+          overflow-wrap: anywhere;
+        }
+
+        .severity-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          width: fit-content;
+          padding: 5px 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.02);
+          border: 1px solid rgba(255,255,255,0.06);
+          color: #edf1f4;
+          font-size: 11px;
+          font-weight: 600;
+        }
+
+        .severity-pill i {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          display: inline-block;
+        }
+
+        .empty-state {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 120px;
+          color: #9aa4ad;
+          border: 1px dashed #2a2f33;
+          border-radius: 12px;
+          margin: 18px;
+          background: rgba(255,255,255,0.01);
+        }
+
+        .progress {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 30%;
+          height: 2px;
+          background: #5b8def;
+          animation: pulse 1.2s ease-in-out infinite alternate;
+          z-index: 50;
+        }
+
+        @keyframes pulse {
+          from { opacity: 0.4; transform: translateX(0); }
+          to { opacity: 1; transform: translateX(140%); }
+        }
+
+        @media (max-width: 980px) {
+          .topbar {
+            grid-template-columns: 1fr;
+            justify-items: start;
+          }
+
+          .stats-strip,
+          .header-actions {
+            justify-self: start;
+          }
+
+          .content-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .dashboard-shell {
+            padding: 0 14px 20px;
+          }
+
+          .stats-strip {
+            flex-wrap: wrap;
+            gap: 12px;
+          }
+
+          .header-actions {
+            width: 100%;
+            justify-content: space-between;
+          }
+
+          .refresh-button {
+            flex: 1;
+          }
+
+          .evidence-row {
+            grid-template-columns: 1fr;
+          }
+
+          .risk-banner { align-items: flex-start; }
+          .risk-banner button { margin: 10px 0 0 -42px; align-self: flex-end; }
+        }
+      `}</style>
+    </main>
+  );
 }
