@@ -16,7 +16,12 @@ cargo build --release
 
 # Also write incident-compatible findings.json
 ./target/release/cybersentinel-cli --json
+
+# Open the interactive menu
+./target/release/cybersentinel-cli --menu
 ```
+
+The interactive menu provides numbered commands for a terminal report, JSON export, a summary of detection rules, and command help. The direct commands remain best for a fast demo or automation.
 
 The scanner calls `ss`, `journalctl`, and `ps`. `journalctl` is the preferred source for SSH events. On some distributions, its log retention or permissions may be limited; the scanner then attempts `/var/log/auth.log`, which may require elevated permissions. A failed check is reported as skipped and does not stop the other checks. IPv4, IPv6, TCP, and UDP views of the same port are consolidated into one finding.
 

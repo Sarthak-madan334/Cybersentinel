@@ -2,7 +2,8 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use std::{env, fs};
+use std::{env, fs, io};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -98,11 +99,39 @@ fn print_report(findings: &[Finding], checks: &[CheckResult], host: &str) {
     if findings.is_empty() { println!("\n{} No findings met the configured deterministic thresholds.", "✓".green()); }
 }
 fn export_json(findings: &[Finding]) -> Result<(), String> { fs::write("findings.json", serde_json::to_string_pretty(findings).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?; println!("\n{} Wrote {} dashboard-compatible finding(s) to findings.json", "✓".green(), findings.len()); Ok(()) }
-fn print_help() { println!("CyberSentinel CLI\n\nUsage: cybersentinel-cli [--json]\n\n  --json  Write dashboard-compatible findings to findings.json\n  --help  Show this help text"); }
+fn run_scan(wants_json: bool) {
+    let host = hostname(); let mut next_id = 1;
+    let checks = vec![check_listening_ports(&host, &mut next_id), check_failed_ssh_logins(&host, &mut next_id), check_suspicious_processes(&host, &mut next_id)];
+    let findings: Vec<Finding> = checks.iter().flat_map(|result| result.findings.clone()).collect();
+    print_report(&findings, &checks, &host);
+    if wants_json { if let Err(error) = export_json(&findings) { eprintln!("Failed to write findings.json: {error}"); } }
+}
+fn print_check_guide() {
+    println!("\nDetection checks\n  1. Listening ports: flags fixed backdoor-associated ports as High; all other ports are Info.\n  2. Failed SSH logins: 5+ failures from one IP is Medium; 10+ is High.\n  3. Processes: flags exact known-tool executable names, active Netcat listeners, and execution from /tmp or /dev/shm.\n\nAll detection and scoring use deterministic Rust rules. No LLM is used.\n");
+}
+fn print_help() { println!("CyberSentinel CLI\n\nUsage: cybersentinel-cli [--json | --menu | --help]\n\n  --json  Run a scan and write dashboard-compatible findings to findings.json\n  --menu  Open the interactive command menu\n  --help  Show this help text"); }
+fn interactive_menu() {
+    loop {
+        println!("\n{}\n  1. Run local security scan\n  2. Run scan and export findings.json\n  3. View detection checks and thresholds\n  4. View command help\n  5. Exit", "CyberSentinel CLI menu".bold());
+        print!("\nSelect an option [1-5]: ");
+        if io::stdout().flush().is_err() { return; }
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() { return; }
+        match input.trim() {
+            "1" => run_scan(false),
+            "2" => run_scan(true),
+            "3" => print_check_guide(),
+            "4" => print_help(),
+            "5" | "q" | "quit" | "exit" => { println!("Goodbye."); return; }
+            _ => println!("Choose a number from 1 to 5."),
+        }
+    }
+}
 fn main() {
-    let arguments: Vec<String> = env::args().skip(1).collect(); if arguments.iter().any(|argument| argument == "--help" || argument == "-h") { print_help(); return; }
-    let host = hostname(); let mut next_id = 1; let checks = vec![check_listening_ports(&host, &mut next_id), check_failed_ssh_logins(&host, &mut next_id), check_suspicious_processes(&host, &mut next_id)]; let findings: Vec<Finding> = checks.iter().flat_map(|result| result.findings.clone()).collect(); print_report(&findings, &checks, &host);
-    if arguments.iter().any(|argument| argument == "--json") { if let Err(error) = export_json(&findings) { eprintln!("Failed to write findings.json: {error}"); std::process::exit(1); } }
+    let arguments: Vec<String> = env::args().skip(1).collect();
+    if arguments.iter().any(|argument| argument == "--help" || argument == "-h") { print_help(); return; }
+    if arguments.iter().any(|argument| argument == "--menu" || argument == "-m") { interactive_menu(); return; }
+    run_scan(arguments.iter().any(|argument| argument == "--json"));
 }
 
 #[cfg(test)] mod tests { use super::*; #[test] fn does_not_match_ncat_inside_unrelated_word() { assert_eq!(suspicious_process_indicator("plan9", "plan9 --log-truncate"), None); } #[test] fn matches_actual_ncat_executable() { assert_eq!(suspicious_process_indicator("ncat", "ncat -l 4444"), Some("ncat")); } #[test] fn matches_netcat_listener() { assert_eq!(suspicious_process_indicator("nc", "nc -l -p 4444"), Some("netcat listener")); } }
