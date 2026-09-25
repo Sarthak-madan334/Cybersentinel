@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --bg:#0F1113; --surface:#181B1E; --surface-raised:#202427; --ink:#E7E9EA; --ink-muted:#8A9199; --line:#2A2F33; --critical:#E5484D; --high:#F5A524; --medium:#F5D90A; --low:#3DD68C; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Helvetica Neue",sans-serif; }
+button,select { font:inherit; }
+button:focus-visible,select:focus-visible { outline:2px solid #5B8DEF; outline-offset:2px; }
