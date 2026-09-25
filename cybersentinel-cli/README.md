@@ -18,7 +18,9 @@ cargo build --release
 ./target/release/cybersentinel-cli --json
 ```
 
-The scanner calls `ss`, `journalctl`, and `ps`. `journalctl` is the preferred source for SSH events. On some distributions, its log retention or permissions may be limited; the scanner then attempts `/var/log/auth.log`, which may require elevated permissions. A failed check is reported as skipped and does not stop the other checks.
+The scanner calls `ss`, `journalctl`, and `ps`. `journalctl` is the preferred source for SSH events. On some distributions, its log retention or permissions may be limited; the scanner then attempts `/var/log/auth.log`, which may require elevated permissions. A failed check is reported as skipped and does not stop the other checks. IPv4, IPv6, TCP, and UDP views of the same port are consolidated into one finding.
+
+Use `--help` to view the available options. Process rules match executable names and explicit arguments; they do not use loose substring matching, which prevents false positives such as matching `ncat` inside `truncate`.
 
 ## Detection taxonomy
 
